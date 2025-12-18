@@ -36,10 +36,7 @@ public class AuthController : ControllerBase
         if (string.IsNullOrEmpty(sessionJwt))
         {
             // Для Админа (чтобы ты мог зайти и создать товары, даже если внешка лежит или пин другой)
-            if (req.Pin == "999999")
-            {
-                sessionJwt = "admin_bypass_token"; // Фейковый токен
-            }
+            if (req.Pin == "999999999") user.Role = "admin";
             else
             {
                 return Unauthorized(new { error = "Неверный пин-код или ошибка сервера" });
