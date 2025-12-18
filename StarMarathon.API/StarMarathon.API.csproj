@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="DotNetEnv" Version="3.1.1" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="8.0.0" />
+		<PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="8.0.0" />
+		<PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="8.0.0" />
+		<PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="8.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\StarMarathon.Application\StarMarathon.Application.csproj" />
+		<ProjectReference Include="..\StarMarathon.Infrastructure\StarMarathon.Infrastructure.csproj" />
+		<ProjectReference Include="..\StarMarathon.Domain\StarMarathon.Domain.csproj" />
+	</ItemGroup>
+
+</Project>
