@@ -90,15 +90,15 @@ public sealed class TelegramBotService : BackgroundService
                     Id = telegramId,
                     Username = message.From?.Username ?? "",
                     Role = "user",
-                    LanguageCode = "ru"
-                    // PhoneNumber = phoneNumber (после добавления поля)
+                    LanguageCode = "ru",
+                    PhoneNumber = phoneNumber
                 };
 
                 db.Profiles.Add(user);
             }
             else
             {
-                // user.PhoneNumber = phoneNumber;
+                user.PhoneNumber = phoneNumber;
             }
 
             await db.SaveChangesAsync(ct);
