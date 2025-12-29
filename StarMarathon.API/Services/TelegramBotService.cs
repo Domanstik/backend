@@ -3,125 +3,118 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using Microsoft.EntityFrameworkCore;
 using StarMarathon.Infrastructure.Persistence;
 using StarMarathon.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 
 namespace StarMarathon.API.Services;
 
 public sealed class TelegramBotService : BackgroundService
 {
-    private readonly ITelegramBotClient _botClient;
+    private readonly ITelegramBotClient _bot;
+    private readonly IServiceProvider _sp;
     private readonly ILogger<TelegramBotService> _logger;
-    private readonly IServiceProvider _serviceProvider;
 
-    public TelegramBotService(
-        IServiceProvider serviceProvider,
-        ILogger<TelegramBotService> logger)
+    public TelegramBotService(IServiceProvider sp, ILogger<TelegramBotService> logger)
     {
-        _serviceProvider = serviceProvider;
+        _sp = sp;
         _logger = logger;
 
         var token = Environment.GetEnvironmentVariable("BOT_TOKEN");
-
         if (string.IsNullOrWhiteSpace(token))
         {
-            _logger.LogWarning("BOT_TOKEN не найден. Telegram-бот отключён.");
-            _botClient = null!;
+            _logger.LogWarning("BOT_TOKEN not set, bot disabled");
+            _bot = null!;
             return;
         }
 
-        _botClient = new TelegramBotClient(token);
+        _bot = new TelegramBotClient(token);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_botClient == null)
-            return;
+        if (_bot == null) return;
 
-        _logger.LogInformation("Telegram бот запущен");
-
-        var receiverOptions = new ReceiverOptions
-        {
-            AllowedUpdates = new[] { UpdateType.Message }
-        };
-
-        _botClient.StartReceiving(
+        _bot.StartReceiving(
             HandleUpdateAsync,
             HandleErrorAsync,
-            receiverOptions,
-            cancellationToken: stoppingToken
+            new ReceiverOptions { AllowedUpdates = new[] { UpdateType.Message } },
+            stoppingToken
         );
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    private async Task HandleUpdateAsync(
-        ITelegramBotClient botClient,
-        Update update,
-        CancellationToken ct)
+    private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
     {
-        if (update.Message is not { } message)
-            return;
+        if (update.Message is not { } msg) return;
 
-        if (message.Contact is not { } contact)
-            return;
-
-        using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<StarDbContext>();
-
-        try
+        // 🔹 Команда из Mini App
+        if (msg.Text == "/start share_phone")
         {
-            long telegramId = contact.UserId ?? message.From!.Id;
-            string phoneNumber = contact.PhoneNumber;
-
-            if (!phoneNumber.StartsWith("+"))
-                phoneNumber = "+" + phoneNumber;
-
-            _logger.LogInformation("Контакт получен: {Id} {Phone}", telegramId, phoneNumber);
-
-            var user = await db.Profiles
-                .FirstOrDefaultAsync(u => u.Id == telegramId, ct);
-
-            if (user == null)
-            {
-                user = new UserProfile
+            await bot.SendMessage(
+                msg.Chat.Id,
+                "Нажмите кнопку ниже, чтобы подтвердить номер телефона",
+                replyMarkup: new ReplyKeyboardMarkup(
+                    KeyboardButton.WithRequestContact("📱 Поделиться номером")
+                )
                 {
-                    Id = telegramId,
-                    Username = message.From?.Username ?? "",
-                    Role = "user",
-                    LanguageCode = "ru",
-                    PhoneNumber = phoneNumber
-                };
-
-                db.Profiles.Add(user);
-            }
-            else
-            {
-                user.PhoneNumber = phoneNumber;
-            }
-
-            await db.SaveChangesAsync(ct);
-
-            await botClient.SendMessage(
-                chatId: message.Chat.Id,
-                text: "Спасибо! Ваш номер подтверждён. Возвращайтесь в приложение.",
-                replyMarkup: new ReplyKeyboardRemove(),
+                    ResizeKeyboard = true,
+                    OneTimeKeyboard = true
+                },
                 cancellationToken: ct
             );
+            return;
         }
-        catch (Exception ex)
+
+        // 🔹 Пришёл контакт
+        if (msg.Contact is not { } contact) return;
+
+        if (contact.UserId != msg.From?.Id)
         {
-            _logger.LogError(ex, "Ошибка обработки контакта");
+            _logger.LogWarning("Contact UserId mismatch");
+            return;
         }
+
+        using var scope = _sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StarDbContext>();
+
+        var phone = contact.PhoneNumber.StartsWith("+")
+            ? contact.PhoneNumber
+            : "+" + contact.PhoneNumber;
+
+        var user = await db.Profiles.FirstOrDefaultAsync(u => u.Id == contact.UserId, ct);
+
+        if (user == null)
+        {
+            user = new UserProfile
+            {
+                Id = contact.UserId.Value,
+                Username = msg.From?.Username ?? "",
+                Role = "user",
+                LanguageCode = "ru",
+                PhoneNumber = phone
+            };
+            db.Profiles.Add(user);
+        }
+        else
+        {
+            user.PhoneNumber = phone;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        await bot.SendMessage(
+            msg.Chat.Id,
+            "Спасибо! Номер подтверждён. Вернитесь в приложение.",
+            replyMarkup: new ReplyKeyboardRemove(),
+            cancellationToken: ct
+        );
     }
 
-    private Task HandleErrorAsync(
-        ITelegramBotClient botClient,
-        Exception exception,
-        CancellationToken ct)
+    private Task HandleErrorAsync(ITelegramBotClient bot, Exception ex, CancellationToken ct)
     {
-        _logger.LogError(exception, "Telegram polling error");
+        _logger.LogError(ex, "Telegram bot error");
         return Task.CompletedTask;
     }
 }
