@@ -1,4 +1,5 @@
 ﻿using System.Net.Http.Json;
+using Microsoft.Extensions.Logging; // Добавил логгер
 using StarMarathon.Application.Interfaces;
 
 namespace StarMarathon.Infrastructure.Services;
@@ -6,84 +7,88 @@ namespace StarMarathon.Infrastructure.Services;
 public class StormBvService : IAuthService
 {
     private readonly HttpClient _http;
+    private readonly ILogger<StormBvService> _logger; // Логгер
 
-    public StormBvService(IHttpClientFactory httpClientFactory)
+    public StormBvService(IHttpClientFactory httpClientFactory, ILogger<StormBvService> logger)
     {
         _http = httpClientFactory.CreateClient("StormAPI");
+        _logger = logger;
     }
 
-    // 1. Вход: Register -> Login
     public async Task<(string? SessionToken, string? AuthToken)> LoginAsync(long tgId, string pin, string? username, string? phone)
     {
         try
         {
-            // ШАГ 1: Register (Получаем auth_jwt)
+            // ШАГ 1: Register
             var regPayload = new { pin, tg_id = tgId, phone, username };
+
+            _logger.LogInformation($"[StormAPI] Отправка authRegister: PIN={pin}, Phone={phone}, TG={tgId}");
+
             var regRes = await _http.PostAsJsonAsync("authRegister", regPayload);
+            var regBody = await regRes.Content.ReadAsStringAsync(); // Читаем ответ текстом
+
+            _logger.LogInformation($"[StormAPI] Ответ authRegister ({regRes.StatusCode}): {regBody}");
 
             if (!regRes.IsSuccessStatusCode) return (null, null);
-            // Если 204 - неверный пин
-            if (regRes.StatusCode == System.Net.HttpStatusCode.NoContent) return (null, null);
 
-            var regData = await regRes.Content.ReadFromJsonAsync<AuthResponse>();
+            // Парсим
+            var regData = System.Text.Json.JsonSerializer.Deserialize<AuthResponse>(regBody); // Используем System.Text.Json
             var authJwt = regData?.auth_jwt;
 
-            if (string.IsNullOrEmpty(authJwt)) return (null, null);
+            if (string.IsNullOrEmpty(authJwt))
+            {
+                _logger.LogWarning("[StormAPI] auth_jwt пустой!");
+                return (null, null);
+            }
 
-            // ШАГ 2: Login (Получаем session_jwt)
+            // ШАГ 2: Login
             var loginPayload = new { auth_jwt = authJwt };
             var loginRes = await _http.PostAsJsonAsync("authLogin", loginPayload);
+            var loginBody = await loginRes.Content.ReadAsStringAsync();
+
+            _logger.LogInformation($"[StormAPI] Ответ authLogin ({loginRes.StatusCode}): {loginBody}");
 
             if (!loginRes.IsSuccessStatusCode) return (null, authJwt);
 
-            var loginData = await loginRes.Content.ReadFromJsonAsync<SessionResponse>();
+            var loginData = System.Text.Json.JsonSerializer.Deserialize<SessionResponse>(loginBody);
             return (loginData?.session_jwt, authJwt);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"StormAPI Error: {ex.Message}");
+            _logger.LogError($"[StormAPI] Ошибка запроса: {ex.Message}");
             return (null, null);
         }
     }
 
-    // 2. Профиль
-    public async Task<UserProfileDto> GetProfileAsync(string sessionToken)
+    // Остальные методы без изменений, но используй PostJsonHelper если нужно
+    public async Task<int> GetBalanceAsync(string externalSessionToken)
     {
-        var res = await PostJson("getProfile", new { session_jwt = sessionToken });
-        if (res == null) return new UserProfileDto("Неизвестный", 0);
-
+        var res = await PostJson("getProfile", new { session_jwt = externalSessionToken });
+        if (res == null) return 0;
         var data = await res.Content.ReadFromJsonAsync<ProfileResponse>();
-        return new UserProfileDto(data?.fio ?? "", data?.balance ?? 0);
+        return data?.balance ?? 0;
     }
 
-    // 3. Рейтинг
-    public async Task<List<RatingItemDto>> GetRatingAsync(string sessionToken)
+    public async Task<List<ExternalTransaction>> GetTransactionsAsync(string extToken)
     {
-        var res = await PostJson("getRating", new { session_jwt = sessionToken });
+        var res = await PostJson("getTransactions", new { session_jwt = extToken });
         if (res == null) return new();
-        return await res.Content.ReadFromJsonAsync<List<RatingItemDto>>() ?? new();
+        return await res.Content.ReadFromJsonAsync<List<ExternalTransaction>>() ?? new();
     }
 
-    // 4. Транзакции
-    public async Task<List<TransactionDto>> GetTransactionsAsync(string sessionToken)
+    public async Task<List<LeaderboardItem>> GetRatingAsync(string extToken)
     {
-        var res = await PostJson("getTransactions", new { session_jwt = sessionToken });
+        var res = await PostJson("getRating", new { session_jwt = extToken });
         if (res == null) return new();
-        return await res.Content.ReadFromJsonAsync<List<TransactionDto>>() ?? new();
+        return await res.Content.ReadFromJsonAsync<List<LeaderboardItem>>() ?? new();
     }
 
-    // 5. Добавить транзакцию (Покупка/Награда)
-    public async Task<bool> AddTransactionAsync(string sessionToken, int amount, string description)
+    public async Task<bool> AddTransactionAsync(string extToken, int amount, string description)
     {
-        var res = await PostJson("addTransaction", new { session_jwt = sessionToken, amount, descr = description });
-
-        // 200 OK - успешно
-        // 204 - Person not found
-        // 400/401/500 - ошибки
+        var res = await PostJson("addTransaction", new { session_jwt = extToken, amount, descr = description });
         return res != null && res.IsSuccessStatusCode;
     }
 
-    // --- Вспомогательный метод ---
     private async Task<HttpResponseMessage?> PostJson(string url, object body)
     {
         try
@@ -98,7 +103,6 @@ public class StormBvService : IAuthService
         }
     }
 
-    // Внутренние классы для парсинга JSON ответов API
     private class AuthResponse { public string auth_jwt { get; set; } }
     private class SessionResponse { public string session_jwt { get; set; } }
     private class ProfileResponse { public string fio { get; set; } public int balance { get; set; } }
