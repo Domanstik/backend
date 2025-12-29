@@ -30,24 +30,30 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
-        // 1. Идем во внешнее API
-        var (sessionJwt, authJwt) = await _storm.LoginAsync(req.TgId, req.Pin, req.Username, req.Phone);
+        string? sessionJwt = null;
+        string? authJwt = null;
 
+        // 1. Попытка РЕАЛЬНОГО входа через внешнее API
+        // StormBvService отправит authRegister(pin, phone, tgId)
+        var result = await _storm.LoginAsync(req.TgId, req.Pin, req.Username, req.Phone);
+        sessionJwt = result.SessionToken;
+        authJwt = result.AuthToken;
+
+        // 2. Если внешнее API не пустило (вернуло null), проверяем Админский бэкдор
         if (string.IsNullOrEmpty(sessionJwt))
         {
-            // Для Админа (тестовый вход, байпас внешнего API)
-            // ИЗМЕНЕНИЕ: Теперь проверяем 9 девяток
-            if (req.Pin == "999999999")
+            if (req.Pin == "999999999") // Админский мастер-пин
             {
-                sessionJwt = "admin_bypass_token"; // Фейковый токен
+                sessionJwt = "admin_bypass_token";
             }
             else
             {
+                // Если и не админ, и внешка не пустила — ошибка
                 return Unauthorized(new { error = "Неверный пин-код или ошибка сервера" });
             }
         }
 
-        // 2. Работаем с локальной БД (Supabase)
+        // 3. Сохранение/Обновление в Supabase
         var user = await _db.Profiles.FindAsync(req.TgId);
         if (user == null)
         {
@@ -55,23 +61,26 @@ public class AuthController : ControllerBase
             {
                 Id = req.TgId,
                 Username = req.Username ?? "",
-                // ИЗМЕНЕНИЕ: При создании, если пин 9 девяток — даем админа
+                // Если зашли через бэкдор 999..999 — админ, иначе юзер
                 Role = req.Pin == "999999999" ? "admin" : "user",
+                PhoneNumber = req.Phone,
                 ExternalAuthJwt = authJwt
             };
             _db.Profiles.Add(user);
         }
         else
         {
-            // ИЗМЕНЕНИЕ: Если существующий юзер ввел 9 девяток — повышаем до админа
+            // Если ввел админский пин — повышаем права
             if (req.Pin == "999999999") user.Role = "admin";
 
-            user.ExternalAuthJwt = authJwt; // Обновляем токен
+            // Обновляем телефон и токен, если пришли новые
+            if (!string.IsNullOrEmpty(req.Phone)) user.PhoneNumber = req.Phone;
+            if (!string.IsNullOrEmpty(authJwt)) user.ExternalAuthJwt = authJwt;
         }
 
         await _db.SaveChangesAsync();
 
-        // 3. Выдаем наш токен с зашитым внутри session_jwt
+        // 4. Выдача нашего токена
         var token = GenerateJwt(user, sessionJwt);
 
         return Ok(new { token, role = user.Role, language = user.LanguageCode });
@@ -81,12 +90,10 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> CheckPhone([FromQuery] long tgId)
     {
         var user = await _db.Profiles.FindAsync(tgId);
-
         if (user != null && !string.IsNullOrEmpty(user.PhoneNumber))
         {
             return Ok(new { hasPhone = true, phone = user.PhoneNumber });
         }
-
         return Ok(new { hasPhone = false });
     }
 
@@ -99,8 +106,9 @@ public class AuthController : ControllerBase
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(ClaimTypes.Role, user.Role),
-            new Claim("ext_token", extToken) // Внешний токен внутри нашего
-        }; 
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim("ext_token", extToken)
+        };
 
         var token = new JwtSecurityToken(
             issuer: "StarMarathon",
