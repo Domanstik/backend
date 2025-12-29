@@ -13,7 +13,7 @@ public interface IAuthService
     Task<bool> AddTransactionAsync(string sessionToken, int amount, string description);
 }
 
-// DTOs для ответов
+// DTOs для ответов (public records)
 public record UserProfileDto(string Fio, int Balance);
 public record RatingItemDto(string Fio, int Balance, int Place);
 public record TransactionDto(string Date, int Amount, string Type, string Descr);
