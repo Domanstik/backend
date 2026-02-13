@@ -87,21 +87,28 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> CheckPhone([FromQuery] long tgId)
     {
-        // ИСПРАВЛЕНИЕ: используем _db вместо _context
+        // Лог 1: Начало проверки
+        Console.WriteLine($"[API CheckPhone] Запрос для ID: {tgId}");
+
         var user = await _db.Profiles
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == tgId);
 
-        if (user == null || string.IsNullOrEmpty(user.PhoneNumber))
+        if (user == null)
         {
+            Console.WriteLine($"[API CheckPhone] Юзер {tgId} НЕ НАЙДЕН в базе.");
             return Ok(new { hasPhone = false });
         }
 
-        return Ok(new
+        // Лог 2: Что нашли
+        Console.WriteLine($"[API CheckPhone] Юзер найден. Телефон в базе: '{user.PhoneNumber}'");
+
+        if (!string.IsNullOrEmpty(user.PhoneNumber))
         {
-            hasPhone = true,
-            phone = user.PhoneNumber
-        });
+            return Ok(new { hasPhone = true, phone = user.PhoneNumber });
+        }
+
+        return Ok(new { hasPhone = false });
     }
 
     private string GenerateJwt(UserProfile user, string extToken)
