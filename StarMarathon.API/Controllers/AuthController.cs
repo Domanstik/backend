@@ -1,11 +1,13 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StarMarathon.Application.Interfaces;
 using StarMarathon.Domain.Entities;
 using StarMarathon.Infrastructure.Persistence;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace StarMarathon.API.Controllers;
 
@@ -82,14 +84,24 @@ public class AuthController : ControllerBase
 
     // ... CheckPhone и GenerateJwt оставляем без изменений ...
     [HttpGet("check-phone")]
+    [AllowAnonymous]
     public async Task<IActionResult> CheckPhone([FromQuery] long tgId)
     {
-        var user = await _db.Profiles.FindAsync(tgId);
-        if (user != null && !string.IsNullOrEmpty(user.PhoneNumber))
+        // ИСПРАВЛЕНИЕ: используем _db вместо _context
+        var user = await _db.Profiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == tgId);
+
+        if (user == null || string.IsNullOrEmpty(user.PhoneNumber))
         {
-            return Ok(new { hasPhone = true, phone = user.PhoneNumber });
+            return Ok(new { hasPhone = false });
         }
-        return Ok(new { hasPhone = false });
+
+        return Ok(new
+        {
+            hasPhone = true,
+            phone = user.PhoneNumber
+        });
     }
 
     private string GenerateJwt(UserProfile user, string extToken)
