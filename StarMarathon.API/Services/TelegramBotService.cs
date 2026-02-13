@@ -1,14 +1,12 @@
-﻿using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.EntityFrameworkCore;
+using StarMarathon.Domain.Entities;
+using StarMarathon.Infrastructure.Persistence;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
-using StarMarathon.Infrastructure.Persistence;
-using StarMarathon.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
+
 
 namespace StarMarathon.API.Services;
 
@@ -39,19 +37,20 @@ public class TelegramBotService : BackgroundService
     {
         if (_botClient == null) return;
 
-        // Сбрасываем вебхук на случай, если он был установлен ранее, чтобы работал Polling
-        try { await _botClient.DeleteWebhookAsync(cancellationToken: stoppingToken); } catch { }
+        // ИСПРАВЛЕНИЕ 1: DeleteWebhookAsync -> DeleteWebhook
+        try { await _botClient.DeleteWebhook(cancellationToken: stoppingToken); } catch { }
 
         _logger.LogInformation("Telegram бот запущен и ожидает сообщения...");
 
         var receiverOptions = new ReceiverOptions
         {
-            AllowedUpdates = new[] { UpdateType.Message }
+            AllowedUpdates = [UpdateType.Message] // Синтаксис массива C# 12
         };
 
+        // ИСПРАВЛЕНИЕ 2: pollingErrorHandler -> errorHandler
         _botClient.StartReceiving(
             updateHandler: HandleUpdateAsync,
-            pollingErrorHandler: HandlePollingErrorAsync,
+            errorHandler: HandlePollingErrorAsync, // <-- Имя параметра изменилось
             receiverOptions: receiverOptions,
             cancellationToken: stoppingToken
         );
@@ -67,15 +66,17 @@ public class TelegramBotService : BackgroundService
         // 1. Обработка команды /start
         if (message.Text != null && message.Text.StartsWith("/start"))
         {
-            var keyboard = new ReplyKeyboardMarkup(new[]
+            // ИСПРАВЛЕНИЕ 3: Создание кнопки через WithRequestContact
+            var keyboard = new ReplyKeyboardMarkup(true) // true = ResizeKeyboard
             {
-                new KeyboardButton("📱 Поделиться номером телефона") { RequestContact = true }
-            })
-            {
-                ResizeKeyboard = true,
+                Keyboard = new[]
+                {
+                    new[] { KeyboardButton.WithRequestContact("📱 Поделиться номером телефона") }
+                },
                 OneTimeKeyboard = true
             };
 
+            // ИСПРАВЛЕНИЕ 4: SendTextMessageAsync -> SendMessage
             await botClient.SendMessage(
                 chatId: chatId,
                 text: "Для завершения регистрации, пожалуйста, нажмите кнопку ниже, чтобы отправить свой номер телефона.",
@@ -88,7 +89,6 @@ public class TelegramBotService : BackgroundService
         // 2. Обработка Контакта
         if (message.Contact is not { } contact) return;
 
-        // Проверяем, что контакт принадлежит отправителю (защита от пересылки чужих контактов)
         if (contact.UserId != message.From?.Id)
         {
             await botClient.SendMessage(chatId, "Пожалуйста, отправьте СВОЙ номер телефона через кнопку меню.", cancellationToken: cancellationToken);
@@ -111,7 +111,6 @@ public class TelegramBotService : BackgroundService
 
             if (user == null)
             {
-                // Создаем нового пользователя
                 user = new UserProfile
                 {
                     Id = telegramId,
@@ -124,16 +123,13 @@ public class TelegramBotService : BackgroundService
             }
             else
             {
-                // Обновляем существующего
                 user.PhoneNumber = phoneNumber;
-                // Можно обновить username, если поменялся
                 if (!string.IsNullOrEmpty(message.From?.Username))
                     user.Username = message.From.Username;
             }
 
             await db.SaveChangesAsync(cancellationToken);
 
-            // Убираем клавиатуру и благодарим
             await botClient.SendMessage(
                 chatId: chatId,
                 text: "✅ Номер успешно принят! Вернитесь в приложение StarMarathon.",
@@ -151,6 +147,6 @@ public class TelegramBotService : BackgroundService
     private Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
     {
         _logger.LogError(exception, "Telegram API Error");
-        return Task.CompletedTask;
+        return Task.CompletedTask; 
     }
 }
