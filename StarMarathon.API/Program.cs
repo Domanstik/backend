@@ -66,18 +66,10 @@ builder.Services.AddSwaggerGen(); // (Сократил настройку для краткости, твоя пол
 // --- ВАЖНО: Настройка CORS ---
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFirebase", policy =>
-    {
-        policy.WithOrigins(
-                "https://star-mini-app.web.app",           // Твой Firebase
-                "https://star-mini-app.firebaseapp.com",   // Зеркало Firebase
-                "http://localhost:5173",                   // Локальный фронт
-                "https://localhost:5173"
-            )
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials(); // Разрешаем куки/авторизацию
-    });
+    options.AddPolicy("AllowAll", 
+        b => b.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader());
 });
 
 // Бот
@@ -92,7 +84,7 @@ app.UseSwaggerUI();
 app.UseHttpsRedirection();
 
 // --- ВАЖНО: CORS перед Auth ---
-app.UseCors("AllowFirebase");
+app.UseCors("AllowAll"); // <--- Поменяй AllowFirebase на AllowAll
 
 app.UseAuthentication();
 app.UseAuthorization();
