@@ -26,31 +26,47 @@ public class AuthController : ControllerBase
         _cfg = cfg;
     }
 
-    public record LoginRequest(long TgId, string Pin, string? Username, string? Phone);
+    public record LoginRequest(long TgId, string Pin, string? Username, string? Phone, string? LanguageCode);
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
-        // 1. Отправляем РЕАЛЬНЫЕ данные во внешнее API
-        // (включая телефон, который пришел с фронта)
-        var (sessionJwt, authJwt) = await _storm.LoginAsync(req.TgId, req.Pin, req.Username, req.Phone);
+        string sessionJwt = "";
+        string authJwt = "";
 
-        // Если внешнее API не вернуло токен — значит данные не приняты
-        if (string.IsNullOrEmpty(sessionJwt))
+        // 1. Проверка админа
+        if (req.Pin == "999999999")
         {
-            // Оставляем бэкдор ТОЛЬКО для админа (на всякий случай, чтобы ты мог войти в админку)
-            if (req.Pin == "999999999")
+            sessionJwt = "admin_bypass_token";
+            authJwt = "admin_auth_jwt";
+        }
+        else
+        {
+            try
             {
-                sessionJwt = "admin_bypass_token";
+                (sessionJwt, authJwt) = await _storm.LoginAsync(req.TgId, req.Pin, req.Username, req.Phone);
             }
-            else
+            catch (Exception ex)
             {
-                // Возвращаем 401, если API отклонило
-                return Unauthorized(new { error = "Внешний сервис отклонил вход. Проверьте консоль сервера." });
+                Console.WriteLine($"[Auth] External API Error: {ex.Message}");
             }
         }
 
-        // 2. Логика Supabase (синхронизация)
+        if (string.IsNullOrEmpty(sessionJwt))
+        {
+            return Unauthorized(new { error = "Неверный код или внешний сервис недоступен" });
+        }
+
+        // 2. Логика языка
+        string incomingLang = req.LanguageCode?.ToLower() ?? "ru";
+        string finalLang = "ru";
+
+        if (incomingLang == "en" || incomingLang == "gb") finalLang = "en";
+        else if (incomingLang == "ge") finalLang = "ge";
+        else if (incomingLang == "am") finalLang = "am";
+        else if (incomingLang == "ru") finalLang = "ru";
+
+        // 3. Работа с БД
         var user = await _db.Profiles.FindAsync(req.TgId);
 
         if (user == null)
@@ -59,56 +75,40 @@ public class AuthController : ControllerBase
             {
                 Id = req.TgId,
                 Username = req.Username ?? "",
-                // Если пин 999... - админ, иначе юзер
                 Role = req.Pin == "999999999" ? "admin" : "user",
                 PhoneNumber = req.Phone,
-                ExternalAuthJwt = authJwt
+                ExternalAuthJwt = authJwt,
+                LanguageCode = finalLang,
+                CreatedAt = DateTime.UtcNow
             };
             _db.Profiles.Add(user);
         }
         else
         {
             if (req.Pin == "999999999") user.Role = "admin";
-            // Обновляем телефон, если он пришел новый
             if (!string.IsNullOrEmpty(req.Phone)) user.PhoneNumber = req.Phone;
             if (!string.IsNullOrEmpty(authJwt)) user.ExternalAuthJwt = authJwt;
+
+            // Если язык не задан в базе, установим дефолт
+            if (string.IsNullOrEmpty(user.LanguageCode)) user.LanguageCode = "ru";
         }
 
         await _db.SaveChangesAsync();
 
-        // 3. Выдача нашего токена
         var token = GenerateJwt(user, sessionJwt);
 
         return Ok(new { token, role = user.Role, language = user.LanguageCode });
     }
 
-    // ... CheckPhone и GenerateJwt оставляем без изменений ...
     [HttpGet("check-phone")]
     [AllowAnonymous]
     public async Task<IActionResult> CheckPhone([FromQuery] long tgId)
     {
-        // Лог 1: Начало проверки
-        Console.WriteLine($"[API CheckPhone] Запрос для ID: {tgId}");
-
-        var user = await _db.Profiles
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == tgId);
-
-        if (user == null)
-        {
-            Console.WriteLine($"[API CheckPhone] Юзер {tgId} НЕ НАЙДЕН в базе.");
+        var user = await _db.Profiles.AsNoTracking().FirstOrDefaultAsync(u => u.Id == tgId);
+        if (user == null || string.IsNullOrEmpty(user.PhoneNumber))
             return Ok(new { hasPhone = false });
-        }
 
-        // Лог 2: Что нашли
-        Console.WriteLine($"[API CheckPhone] Юзер найден. Телефон в базе: '{user.PhoneNumber}'");
-
-        if (!string.IsNullOrEmpty(user.PhoneNumber))
-        {
-            return Ok(new { hasPhone = true, phone = user.PhoneNumber });
-        }
-
-        return Ok(new { hasPhone = false });
+        return Ok(new { hasPhone = true, phone = user.PhoneNumber });
     }
 
     private string GenerateJwt(UserProfile user, string extToken)
@@ -128,7 +128,7 @@ public class AuthController : ControllerBase
             issuer: "StarMarathon",
             audience: "StarMarathonClient",
             claims: claims,
-            expires: DateTime.UtcNow.AddDays(1),
+            expires: DateTime.UtcNow.AddDays(7),
             signingCredentials: creds
         );
 

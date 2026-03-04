@@ -1,74 +1,61 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using StarMarathon.Application.Interfaces;
 using StarMarathon.Infrastructure.Persistence;
 using System.Security.Claims;
 
 namespace StarMarathon.API.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public class UserController : ControllerBase
 {
-    private readonly IAuthService _storm;
     private readonly StarDbContext _db;
 
-    public UserController(IAuthService storm, StarDbContext db)
+    public UserController(StarDbContext db)
     {
-        _storm = storm;
         _db = db;
     }
 
-    private string GetExtToken() => User.FindFirst("ext_token")?.Value ?? "";
-    private long GetTgId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
-    [HttpGet("profile")]
+    [HttpGet("me")]
     public async Task<IActionResult> GetProfile()
     {
-        var extToken = GetExtToken();
+        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var user = await _db.Profiles.FindAsync(userId);
 
-        // Запрос баланса во внешку
-        var stormProfile = await _storm.GetProfileAsync(extToken);
-
-        // Данные из нашей базы
-        var user = await _db.Profiles.FindAsync(GetTgId());
+        if (user == null) return NotFound();
 
         return Ok(new
         {
-            user?.Id,
-            user?.Username,
-            user?.AvatarUrl,
-            user?.Role,
-            Balance = stormProfile.Balance, // Баланс из внешки
-            Fio = stormProfile.Fio // ФИО из внешки
+            user.Id,
+            user.Username,
+            user.Role,
+            user.PhoneNumber,
+            user.LanguageCode,
+            user.AvatarUrl
         });
     }
 
-    [HttpGet("leaderboard")]
-    public async Task<IActionResult> GetLeaderboard()
-    {
-        var list = await _storm.GetRatingAsync(GetExtToken());
-        return Ok(list);
-    }
+    public record SetLanguageRequest(string Language);
 
-    [HttpGet("notifications")]
-    public async Task<IActionResult> GetNotifications()
+    [HttpPost("set-language")]
+    public async Task<IActionResult> SetLanguage([FromBody] SetLanguageRequest req)
     {
-        // Транзакции из внешки
-        var transactions = await _storm.GetTransactionsAsync(GetExtToken());
+        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var user = await _db.Profiles.FindAsync(userId);
 
-        // Превращаем в формат уведомлений для фронта
-        var notifs = transactions.Select(t => new
+        if (user == null) return NotFound();
+
+        var allowed = new[] { "ru", "en", "ge", "am" };
+        if (!allowed.Contains(req.Language))
         {
-            Id = Guid.NewGuid(),
-            Title = t.Amount > 0 ? "Начисление звезд" : "Списание звезд",
-            Description = $"{t.Descr} ({t.Amount})",
-            Date = t.Date,
-            IsRead = true
-        });
+            return BadRequest("Use: ru, en, ge, am");
+        }
 
-        return Ok(notifs);
+        user.LanguageCode = req.Language;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { success = true, language = user.LanguageCode });
     }
-}
+}   
