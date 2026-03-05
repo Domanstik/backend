@@ -13,10 +13,12 @@ namespace StarMarathon.API.Controllers;
 public class StoreController : ControllerBase
 {
     private readonly StarDbContext _db;
+    private readonly IAuthService _storm; // Добавь сервис
 
-    public StoreController(StarDbContext db)
+    public StoreController(StarDbContext db, IAuthService storm)
     {
         _db = db;
+        _storm = storm; // Инжектим сервис
     }
 
     [HttpGet]
@@ -25,16 +27,14 @@ public class StoreController : ControllerBase
     {
         var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        // ИСПРАВЛЕНИЕ: Сначала фильтруем по ID, потом выбираем поле
         var user = await _db.Profiles
-            .Where(u => u.Id == userId) // <--- Фильтр здесь
-            .Select(u => new { u.LanguageCode }) // <--- Проекция здесь
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.LanguageCode })
             .FirstOrDefaultAsync();
 
         if (user == null) return Unauthorized();
         string lang = user.LanguageCode ?? "ru";
 
-        // Фильтруем товары
         var products = await _db.Products
             .Where(p => p.IsActive)
             .Where(p => p.Language == lang || p.Language == "all")
@@ -49,20 +49,27 @@ public class StoreController : ControllerBase
     public async Task<IActionResult> BuyProduct(Guid productId)
     {
         var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var authJwt = User.FindFirst("ext_token")?.Value; // Достаем токен для Питона
 
         var product = await _db.Products.FindAsync(productId);
         if (product == null || !product.IsActive) return NotFound("Товар не найден");
 
-        // Если у вас есть поле Quantity, раскомментируйте
-        // if (product.Quantity <= 0) return BadRequest("Товар закончился");
-        // product.Quantity -= 1;
+        // --- ВАЖНО: СПИСАНИЕ БАЛАНСА В ПИТОНЕ ---
+        if (!string.IsNullOrEmpty(authJwt))
+        {
+            // Передаем цену со знаком МИНУС
+            bool success = await _storm.AddTransactionAsync(authJwt, -product.Price, $"Покупка: {product.Title}");
+
+            if (!success)
+            {
+                return BadRequest(new { error = "Недостаточно средств или ошибка внешнего API" });
+            }
+        }
 
         var purchase = new Purchase
         {
             UserId = userId,
             ProductId = productId,
-            // Убрал PurchaseDate, так как его нет в вашей модели (EF сам поставит CreatedAt, если настроено)
-            // Или используйте CreatedAt = DateTime.UtcNow, если такое поле есть
             PriceAtPurchase = product.Price,
             Status = "completed"
         };
