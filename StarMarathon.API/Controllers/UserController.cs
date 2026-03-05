@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using StarMarathon.Application.Interfaces;
 using StarMarathon.Infrastructure.Persistence;
 using System.Security.Claims;
 
@@ -12,10 +13,12 @@ namespace StarMarathon.API.Controllers;
 public class UserController : ControllerBase
 {
     private readonly StarDbContext _db;
+    private readonly IAuthService _storm; // Инжектим наш сервис
 
-    public UserController(StarDbContext db)
+    public UserController(StarDbContext db, IAuthService storm)
     {
         _db = db;
+        _storm = storm;
     }
 
     [HttpGet("me")]
@@ -26,15 +29,80 @@ public class UserController : ControllerBase
 
         if (user == null) return NotFound();
 
+        // Достаем authJwt из нашего JWT токена
+        var authJwt = User.FindFirst("ext_token")?.Value;
+
+        int currentBalance = 0;
+
+        if (!string.IsNullOrEmpty(authJwt) && authJwt != "admin_auth_jwt")
+        {
+            try
+            {
+                // Идем за профилем в Python
+                var externalProfile = await _storm.GetProfileAsync(authJwt);
+                currentBalance = externalProfile.Balance;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка получения баланса: {ex.Message}");
+            }
+        }
+
         return Ok(new
         {
-            user.Id,
-            user.Username,
-            user.Role,
-            user.PhoneNumber,
-            user.LanguageCode,
-            user.AvatarUrl
+            user = new
+            {
+                user.Id,
+                user.Username,
+                user.Role,
+                user.PhoneNumber,
+                user.LanguageCode,
+                user.AvatarUrl
+            },
+            balance = currentBalance // Отдаем баланс отдельно для фронта
         });
+    }
+
+    // НОВЫЙ МЕТОД: Лидерборд
+    [HttpGet("leaderboard")]
+    public async Task<IActionResult> GetLeaderboard()
+    {
+        var authJwt = User.FindFirst("ext_token")?.Value;
+
+        if (string.IsNullOrEmpty(authJwt) || authJwt == "admin_auth_jwt")
+            return Ok(new List<object>()); // Пустой массив, если нет токена
+
+        try
+        {
+            var rating = await _storm.GetRatingAsync(authJwt);
+            return Ok(rating);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка получения лидерборда: {ex.Message}");
+            return Ok(new List<object>());
+        }
+    }
+
+    // НОВЫЙ МЕТОД: Транзакции/Уведомления
+    [HttpGet("notifications")]
+    public async Task<IActionResult> GetNotifications()
+    {
+        var authJwt = User.FindFirst("ext_token")?.Value;
+
+        if (string.IsNullOrEmpty(authJwt) || authJwt == "admin_auth_jwt")
+            return Ok(new List<object>());
+
+        try
+        {
+            var transactions = await _storm.GetTransactionsAsync(authJwt);
+            return Ok(transactions);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка получения транзакций: {ex.Message}");
+            return Ok(new List<object>());
+        }
     }
 
     public record SetLanguageRequest(string Language);
@@ -58,4 +126,4 @@ public class UserController : ControllerBase
 
         return Ok(new { success = true, language = user.LanguageCode });
     }
-}   
+}

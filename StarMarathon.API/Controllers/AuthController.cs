@@ -31,8 +31,8 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
-        string sessionJwt = "";
-        string authJwt = "";
+        string? sessionJwt = "";
+        string? authJwt = "";
 
         // 1. Проверка админа
         if (req.Pin == "999999999")
@@ -52,7 +52,7 @@ public class AuthController : ControllerBase
             }
         }
 
-        if (string.IsNullOrEmpty(sessionJwt))
+        if (string.IsNullOrEmpty(sessionJwt) || string.IsNullOrEmpty(authJwt))
         {
             return Unauthorized(new { error = "Неверный код или внешний сервис недоступен" });
         }
@@ -77,6 +77,7 @@ public class AuthController : ControllerBase
                 Username = req.Username ?? "",
                 Role = req.Pin == "999999999" ? "admin" : "user",
                 PhoneNumber = req.Phone,
+                // ВАЖНО: Сохраняем в базу бессрочный authJwt
                 ExternalAuthJwt = authJwt,
                 LanguageCode = finalLang,
                 CreatedAt = DateTime.UtcNow
@@ -89,13 +90,13 @@ public class AuthController : ControllerBase
             if (!string.IsNullOrEmpty(req.Phone)) user.PhoneNumber = req.Phone;
             if (!string.IsNullOrEmpty(authJwt)) user.ExternalAuthJwt = authJwt;
 
-            // Если язык не задан в базе, установим дефолт
             if (string.IsNullOrEmpty(user.LanguageCode)) user.LanguageCode = "ru";
         }
 
         await _db.SaveChangesAsync();
 
-        var token = GenerateJwt(user, sessionJwt);
+        // ВАЖНО: В наш токен мы тоже зашиваем бессрочный authJwt
+        var token = GenerateJwt(user, authJwt);
 
         return Ok(new { token, role = user.Role, language = user.LanguageCode });
     }
@@ -121,14 +122,14 @@ public class AuthController : ControllerBase
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim("ext_token", extToken)
+            new Claim("ext_token", extToken) // Тут теперь лежит authJwt
         };
 
         var token = new JwtSecurityToken(
             issuer: "StarMarathon",
             audience: "StarMarathonClient",
             claims: claims,
-            expires: DateTime.UtcNow.AddDays(7),
+            expires: DateTime.UtcNow.AddDays(30), // Можно смело ставить 30 дней
             signingCredentials: creds
         );
 

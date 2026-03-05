@@ -1,7 +1,7 @@
 ﻿using System.Net.Http.Json;
-using System.Text.Json; // Для JsonSerializerOptions
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using StarMarathon.Application.Interfaces; // Тут лежат ваши DTO и Интерфейс
+using StarMarathon.Application.Interfaces;
 
 namespace StarMarathon.Infrastructure.Services;
 
@@ -15,7 +15,6 @@ public class StormBvService : IAuthService
     {
         _http = httpClientFactory.CreateClient("StormAPI");
         _logger = logger;
-        // Чтобы "fio" из JSON мапилось в "Fio" в C#
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
     }
 
@@ -51,20 +50,38 @@ public class StormBvService : IAuthService
         }
     }
 
-    // 2. Профиль
-    public async Task<UserProfileDto> GetProfileAsync(string sessionToken)
+    // --- ВАЖНО: Хелпер для получения свежего токена сессии ---
+    private async Task<string?> GetSessionTokenAsync(string authJwt)
     {
+        if (string.IsNullOrEmpty(authJwt)) return null;
+
+        var res = await PostJson("authLogin", new { auth_jwt = authJwt });
+        if (res == null) return null;
+
+        var data = await res.Content.ReadFromJsonAsync<SessionResponse>(_jsonOptions);
+        return data?.session_jwt;
+    }
+
+    // 2. Профиль
+    public async Task<UserProfileDto> GetProfileAsync(string authJwt) // Принимаем authJwt
+    {
+        // Сначала получаем "свежий" токен на 1 час
+        var sessionToken = await GetSessionTokenAsync(authJwt);
+        if (sessionToken == null) return new UserProfileDto("Неизвестный", 0);
+
         var res = await PostJson("getProfile", new { session_jwt = sessionToken });
         if (res == null) return new UserProfileDto("Неизвестный", 0);
 
-        // Десериализуем сразу в DTO из интерфейса
         var data = await res.Content.ReadFromJsonAsync<UserProfileDto>(_jsonOptions);
         return data ?? new UserProfileDto("Ошибка", 0);
     }
 
     // 3. Рейтинг
-    public async Task<List<RatingItemDto>> GetRatingAsync(string sessionToken)
+    public async Task<List<RatingItemDto>> GetRatingAsync(string authJwt)
     {
+        var sessionToken = await GetSessionTokenAsync(authJwt);
+        if (sessionToken == null) return new();
+
         var res = await PostJson("getRating", new { session_jwt = sessionToken });
         if (res == null) return new();
 
@@ -72,8 +89,11 @@ public class StormBvService : IAuthService
     }
 
     // 4. Транзакции
-    public async Task<List<TransactionDto>> GetTransactionsAsync(string sessionToken)
+    public async Task<List<TransactionDto>> GetTransactionsAsync(string authJwt)
     {
+        var sessionToken = await GetSessionTokenAsync(authJwt);
+        if (sessionToken == null) return new();
+
         var res = await PostJson("getTransactions", new { session_jwt = sessionToken });
         if (res == null) return new();
 
@@ -81,8 +101,11 @@ public class StormBvService : IAuthService
     }
 
     // 5. Добавить транзакцию
-    public async Task<bool> AddTransactionAsync(string sessionToken, int amount, string description)
+    public async Task<bool> AddTransactionAsync(string authJwt, int amount, string description)
     {
+        var sessionToken = await GetSessionTokenAsync(authJwt);
+        if (sessionToken == null) return false;
+
         var res = await PostJson("addTransaction", new { session_jwt = sessionToken, amount, descr = description });
         return res != null && res.IsSuccessStatusCode;
     }
@@ -103,7 +126,7 @@ public class StormBvService : IAuthService
         }
     }
 
-    // Внутренние классы для Auth (так как их структура уникальна и не используется в UI)
+    // Внутренние классы для Auth
     private class AuthResponse { public string auth_jwt { get; set; } }
     private class SessionResponse { public string session_jwt { get; set; } }
 }
