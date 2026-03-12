@@ -26,7 +26,8 @@ public class AuthController : ControllerBase
         _cfg = cfg;
     }
 
-    public record LoginRequest(long TgId, string Pin, string? Username, string? Phone, string? LanguageCode);
+    // ИСПРАВЛЕНИЕ: Добавили AvatarUrl в принимаемые параметры
+    public record LoginRequest(long TgId, string Pin, string? Username, string? Phone, string? LanguageCode, string? AvatarUrl);
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
@@ -77,9 +78,9 @@ public class AuthController : ControllerBase
                 Username = req.Username ?? "",
                 Role = req.Pin == "999999999" ? "admin" : "user",
                 PhoneNumber = req.Phone,
-                // ВАЖНО: Сохраняем в базу бессрочный authJwt
                 ExternalAuthJwt = authJwt,
                 LanguageCode = finalLang,
+                AvatarUrl = req.AvatarUrl, // <-- ВАЖНО: Сохраняем фото при первой регистрации
                 CreatedAt = DateTime.UtcNow
             };
             _db.Profiles.Add(user);
@@ -89,13 +90,14 @@ public class AuthController : ControllerBase
             if (req.Pin == "999999999") user.Role = "admin";
             if (!string.IsNullOrEmpty(req.Phone)) user.PhoneNumber = req.Phone;
             if (!string.IsNullOrEmpty(authJwt)) user.ExternalAuthJwt = authJwt;
-
             if (string.IsNullOrEmpty(user.LanguageCode)) user.LanguageCode = "ru";
+
+            // <-- ВАЖНО: Обновляем фото, если юзер зашел заново и картинка обновилась
+            if (!string.IsNullOrEmpty(req.AvatarUrl)) user.AvatarUrl = req.AvatarUrl;
         }
 
         await _db.SaveChangesAsync();
 
-        // ВАЖНО: В наш токен мы тоже зашиваем бессрочный authJwt
         var token = GenerateJwt(user, authJwt);
 
         return Ok(new { token, role = user.Role, language = user.LanguageCode });
@@ -122,14 +124,14 @@ public class AuthController : ControllerBase
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim("ext_token", extToken) // Тут теперь лежит authJwt
+            new Claim("ext_token", extToken)
         };
 
         var token = new JwtSecurityToken(
             issuer: "StarMarathon",
             audience: "StarMarathonClient",
             claims: claims,
-            expires: DateTime.UtcNow.AddDays(30), // Можно смело ставить 30 дней
+            expires: DateTime.UtcNow.AddDays(30),
             signingCredentials: creds
         );
 
