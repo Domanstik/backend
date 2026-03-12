@@ -15,5 +15,8 @@ public interface IAuthService
 
 // DTOs для ответов (public records)
 public record UserProfileDto(string Fio, int Balance);
-public record RatingItemDto(string Fio, int Balance, int Place);
+
+// ИСПРАВЛЕНО: Добавили long? Tg_Id (nullable, так как у старых или тестовых записей его может не быть)
+public record RatingItemDto(string Fio, int Balance, int Place, long? Tg_Id);
+
 public record TransactionDto(string Date, int Amount, string Type, string Descr);

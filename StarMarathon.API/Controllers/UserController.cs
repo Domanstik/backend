@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using StarMarathon.Application.Interfaces;
 using StarMarathon.Infrastructure.Persistence;
 using System.Security.Claims;
+using System.Linq; // Добавлено для работы с LINQ (Where, Select, ToList)
 
 namespace StarMarathon.API.Controllers;
 
@@ -63,7 +64,7 @@ public class UserController : ControllerBase
         });
     }
 
-    // НОВЫЙ МЕТОД: Лидерборд
+    // НОВЫЙ МЕТОД: Лидерборд (с аватарками из БД)
     [HttpGet("leaderboard")]
     public async Task<IActionResult> GetLeaderboard()
     {
@@ -74,8 +75,34 @@ public class UserController : ControllerBase
 
         try
         {
+            // 1. Получаем рейтинг из Python
             var rating = await _storm.GetRatingAsync(authJwt);
-            return Ok(rating);
+
+            // 2. Собираем все непустые tg_id из ответа Python
+            var tgIds = rating
+                .Where(r => r.Tg_Id.HasValue)
+                .Select(r => r.Tg_Id.Value)
+                .ToList();
+
+            // 3. Одним запросом достаем аватарки из нашей базы
+            var avatars = await _db.Profiles
+                .Where(p => tgIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.AvatarUrl })
+                .ToDictionaryAsync(p => p.Id, p => p.AvatarUrl);
+
+            // 4. Склеиваем данные для фронтенда
+            var enrichedRating = rating.Select(r => new
+            {
+                fio = r.Fio,
+                balance = r.Balance,
+                place = r.Place,
+                // Ищем аватарку по tg_id. Если нет tg_id или аватарки в БД — будет null
+                avatarUrl = r.Tg_Id.HasValue && avatars.ContainsKey(r.Tg_Id.Value)
+                            ? avatars[r.Tg_Id.Value]
+                            : null
+            });
+
+            return Ok(enrichedRating);
         }
         catch (Exception ex)
         {
