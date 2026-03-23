@@ -22,6 +22,7 @@ public class ContestsController : ControllerBase
         _fileStorage = fileStorage;
     }
 
+    // --- ПОЛУЧЕНИЕ КОНКУРСОВ ДЛЯ ОБЫЧНЫХ ПОЛЬЗОВАТЕЛЕЙ ---
     [HttpGet]
     public async Task<IActionResult> GetContests()
     {
@@ -49,6 +50,7 @@ public class ContestsController : ControllerBase
         return Ok(contests);
     }
 
+    // --- ЗАГРУЗКА РАБОТЫ ПОЛЬЗОВАТЕЛЕМ ---
     [HttpPost("{contestId}/upload")]
     public async Task<IActionResult> UploadEntry(Guid contestId, IFormFile file)
     {
@@ -72,6 +74,31 @@ public class ContestsController : ControllerBase
         return Ok(new { success = true, url = fileUrl });
     }
 
+    // ==========================================================
+    //                    АДМИНСКАЯ ЧАСТЬ
+    // ==========================================================
+
+    // --- ПОЛУЧЕНИЕ ВСЕХ КОНКУРСОВ ДЛЯ АДМИНКИ (без фильтров) ---
+    [Authorize(Roles = "admin")]
+    [HttpGet("admin/all")]
+    public async Task<IActionResult> GetAllForAdmin()
+    {
+        try
+        {
+            var contests = await _db.Contests
+                .Include(c => c.Questions)
+                .ThenInclude(q => q.Options)
+                .OrderByDescending(c => c.EndDate)
+                .ToListAsync();
+
+            return Ok(contests);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     // --- СОЗДАНИЕ КОНКУРСА ---
     [Authorize(Roles = "admin")]
     [HttpPost]
@@ -79,7 +106,6 @@ public class ContestsController : ControllerBase
     {
         try
         {
-            // Здесь мапим маленькие буквы из req на большие буквы сущности Contest
             var contest = new Contest
             {
                 Id = Guid.NewGuid(),
@@ -92,14 +118,43 @@ public class ContestsController : ControllerBase
                 StarsWin = req.starsWin,
                 IsActive = req.isActive,
                 EndDate = DateTime.UtcNow.AddDays(7),
-                Questions = new List<ContestQuestion>() // Инициализируем пустым списком
+                Questions = new List<ContestQuestion>()
             };
 
             _db.Contests.Add(contest);
             await _db.SaveChangesAsync();
 
-            // Возвращаем в ответе title, чтобы в логах фронта было видно, что бэкенд всё понял
             return Ok(new { success = true, id = contest.Id, receivedTitle = req.title });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // --- ОБНОВЛЕНИЕ КОНКУРСА (Редактирование) ---
+    [Authorize(Roles = "admin")]
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateContest(Guid id, [FromBody] CreateContestDto req)
+    {
+        try
+        {
+            var contest = await _db.Contests.FindAsync(id);
+            if (contest == null) return NotFound(new { error = "Конкурс не найден" });
+
+            if (req.title != null) contest.Title = req.title;
+            if (req.subtitle != null) contest.Subtitle = req.subtitle;
+            if (req.language != null) contest.Language = req.language.ToLower();
+            if (req.location != null) contest.Location = req.location;
+            if (req.kind != null) contest.Kind = req.kind;
+
+            contest.StarsJoin = req.starsJoin;
+            contest.StarsWin = req.starsWin;
+            contest.IsActive = req.isActive;
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new { success = true });
         }
         catch (Exception ex)
         {
@@ -140,6 +195,4 @@ public class CreateContestDto
     public int starsJoin { get; set; }
     public int starsWin { get; set; }
     public bool isActive { get; set; }
-
-    // Поле questions специально убрали, чтобы парсер об него не спотыкался
 }
