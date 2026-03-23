@@ -25,12 +25,14 @@ public class ContestsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetContests()
     {
-        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim == null) return Unauthorized();
 
-        // ИСПРАВЛЕНИЕ: Сначала фильтруем по ID, потом выбираем поле
+        var userId = long.Parse(userIdClaim.Value);
+
         var user = await _db.Profiles
-            .Where(u => u.Id == userId) // <--- Фильтр здесь
-            .Select(u => new { u.LanguageCode }) // <--- Проекция здесь
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.LanguageCode })
             .FirstOrDefaultAsync();
 
         if (user == null) return Unauthorized();
@@ -41,18 +43,16 @@ public class ContestsController : ControllerBase
             .Where(c => c.IsActive)
             .Include(c => c.Questions)
             .ThenInclude(q => q.Options)
-            .OrderByDescending(c => c.EndDate) // Используем EndDate для сортировки
+            .OrderByDescending(c => c.EndDate)
             .ToListAsync();
 
         return Ok(contests);
     }
 
-    // Загрузка работы (фото/видео)
     [HttpPost("{contestId}/upload")]
     public async Task<IActionResult> UploadEntry(Guid contestId, IFormFile file)
     {
         var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
         var contest = await _db.Contests.FindAsync(contestId);
         if (contest == null) return NotFound();
 
@@ -62,7 +62,7 @@ public class ContestsController : ControllerBase
         {
             ContestId = contestId,
             UserId = userId,
-            FileUrls = fileUrl, // Используем поле FileUrls (множественное число, как в вашей модели)
+            FileUrls = fileUrl,
             JoinedAt = DateTime.UtcNow
         };
 
@@ -72,14 +72,13 @@ public class ContestsController : ControllerBase
         return Ok(new { success = true, url = fileUrl });
     }
 
-    // Создание нового конкурса (ТОЛЬКО ДЛЯ АДМИНОВ)
+    // --- СОЗДАНИЕ КОНКУРСА ---
     [Authorize(Roles = "admin")]
     [HttpPost]
     public async Task<IActionResult> CreateContest([FromBody] CreateContestDto req)
     {
         try
         {
-            // 1. Создаем сущность конкурса
             var contest = new Contest
             {
                 Id = Guid.NewGuid(),
@@ -91,16 +90,11 @@ public class ContestsController : ControllerBase
                 StarsJoin = req.StarsJoin,
                 StarsWin = req.StarsWin,
                 IsActive = req.IsActive,
-                CreatedAt = DateTime.UtcNow,
-                // Если у тебя в модели EndDate, можно распарсить из Subtitle или оставить null
-                EndDate = DateTime.UtcNow.AddDays(7)
+                // EndDate выставляем на неделю вперед от текущей даты, 
+                // так как в форме мы передаем его только строкой в Subtitle
+                EndDate = DateTime.UtcNow.AddDays(7),
+                Questions = new List<ContestQuestion>()
             };
-
-            // 2. Если есть вопросы, добавляем их (если твоя модель это поддерживает)
-            if (req.Questions != null && req.Questions.Any())
-            {
-                // Тут логика добавления вопросов, если нужно
-            }
 
             _db.Contests.Add(contest);
             await _db.SaveChangesAsync();
@@ -114,7 +108,7 @@ public class ContestsController : ControllerBase
     }
 }
 
-// Вспомогательный класс (DTO) для приема данных с фронта
+// DTO для приема данных
 public record CreateContestDto(
     string Kind,
     string Title,
@@ -124,5 +118,5 @@ public record CreateContestDto(
     int StarsJoin,
     int StarsWin,
     bool IsActive,
-    List<object> Questions // Пока object, если структура вопросов сложная
+    List<object>? Questions
 );
