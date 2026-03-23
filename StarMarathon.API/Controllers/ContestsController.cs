@@ -117,7 +117,7 @@ public class ContestsController : ControllerBase
                 StarsJoin = req.starsJoin,
                 StarsWin = req.starsWin,
                 IsActive = req.isActive,
-                EndDate = DateTime.UtcNow.AddDays(7),
+                EndDate = req.endDate ?? DateTime.UtcNow.AddDays(7),
                 Questions = new List<ContestQuestion>()
             };
 
