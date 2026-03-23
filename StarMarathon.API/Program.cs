@@ -38,7 +38,7 @@ builder.Services.AddSingleton(supabaseClient);
 builder.Services.AddScoped<IFileStorageService, SupabaseStorageService>();
 builder.Services.AddHttpClient("StormAPI", client =>
 {
-    client.BaseAddress = new Uri(Environment.GetEnvironmentVariable("STORM_API_URL") ?? "https://wages-contribute-street-analyses.trycloudflare.com/api/");
+    client.BaseAddress = new Uri(Environment.GetEnvironmentVariable("STORM_API_URL") ?? "https://bowl-liability-suse-gotten.trycloudflare.com/api/");
 });
 builder.Services.AddScoped<IAuthService, StormBvService>();
 
