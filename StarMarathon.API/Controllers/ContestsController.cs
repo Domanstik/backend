@@ -79,19 +79,18 @@ public class ContestsController : ControllerBase
     {
         try
         {
+            // 1. Создаем сущность конкурса
             var contest = new Contest
             {
                 Id = Guid.NewGuid(),
                 Kind = req.Kind ?? "contest",
-                Title = req.Title,
-                Subtitle = req.Subtitle,
+                Title = req.Title ?? "Без названия", // Защита от пустых имен
+                Subtitle = req.Subtitle ?? "",
                 Language = req.Language?.ToLower() ?? "ru",
                 Location = req.Location ?? "All",
                 StarsJoin = req.StarsJoin,
                 StarsWin = req.StarsWin,
                 IsActive = req.IsActive,
-                // EndDate выставляем на неделю вперед от текущей даты, 
-                // так как в форме мы передаем его только строкой в Subtitle
                 EndDate = DateTime.UtcNow.AddDays(7),
                 Questions = new List<ContestQuestion>()
             };
@@ -108,15 +107,15 @@ public class ContestsController : ControllerBase
     }
 }
 
-// DTO для приема данных
-public record CreateContestDto(
-    string Kind,
-    string Title,
-    string Subtitle,
-    string Language,
-    string Location,
-    int StarsJoin,
-    int StarsWin,
-    bool IsActive,
-    List<object>? Questions
-);
+// Надежный класс (DTO) для приема данных с фронта
+public class CreateContestDto
+{
+    public string? Kind { get; set; }
+    public string? Title { get; set; }
+    public string? Subtitle { get; set; }
+    public string? Language { get; set; }
+    public string? Location { get; set; }
+    public int StarsJoin { get; set; }
+    public int StarsWin { get; set; }
+    public bool IsActive { get; set; }
+}
