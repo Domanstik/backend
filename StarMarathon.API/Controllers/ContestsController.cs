@@ -195,4 +195,6 @@ public class CreateContestDto
     public int starsJoin { get; set; }
     public int starsWin { get; set; }
     public bool isActive { get; set; }
+
+    public DateTime? endDate { get; set; }
 }
