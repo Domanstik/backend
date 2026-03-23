@@ -5,7 +5,6 @@ using StarMarathon.Domain.Entities;
 using StarMarathon.Infrastructure.Persistence;
 using StarMarathon.Application.Interfaces;
 using System.Security.Claims;
-using System.Text.Json.Serialization; // <-- ДОБАВИЛИ ДЛЯ ТОЧНОГО МАППИНГА JSON
 
 namespace StarMarathon.API.Controllers;
 
@@ -80,25 +79,27 @@ public class ContestsController : ControllerBase
     {
         try
         {
+            // Здесь мапим маленькие буквы из req на большие буквы сущности Contest
             var contest = new Contest
             {
                 Id = Guid.NewGuid(),
-                Kind = req.Kind ?? "contest",
-                Title = req.Title ?? "Без названия",
-                Subtitle = req.Subtitle ?? "",
-                Language = req.Language?.ToLower() ?? "ru",
-                Location = req.Location ?? "All",
-                StarsJoin = req.StarsJoin,
-                StarsWin = req.StarsWin,
-                IsActive = req.IsActive,
+                Kind = req.kind ?? "contest",
+                Title = req.title ?? "Без названия",
+                Subtitle = req.subtitle ?? "",
+                Language = req.language?.ToLower() ?? "ru",
+                Location = req.location ?? "All",
+                StarsJoin = req.starsJoin,
+                StarsWin = req.starsWin,
+                IsActive = req.isActive,
                 EndDate = DateTime.UtcNow.AddDays(7),
-                Questions = new List<ContestQuestion>()
+                Questions = new List<ContestQuestion>() // Инициализируем пустым списком
             };
 
             _db.Contests.Add(contest);
             await _db.SaveChangesAsync();
 
-            return Ok(new { success = true, id = contest.Id });
+            // Возвращаем в ответе title, чтобы в логах фронта было видно, что бэкенд всё понял
+            return Ok(new { success = true, id = contest.Id, receivedTitle = req.title });
         }
         catch (Exception ex)
         {
@@ -106,7 +107,7 @@ public class ContestsController : ControllerBase
         }
     }
 
-    // --- НОВЫЙ МЕТОД: УДАЛЕНИЕ КОНКУРСА ---
+    // --- УДАЛЕНИЕ КОНКУРСА ---
     [Authorize(Roles = "admin")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteContest(Guid id)
@@ -128,33 +129,17 @@ public class ContestsController : ControllerBase
     }
 }
 
-// --- БРОНЕБОЙНЫЙ DTO ---
+// 100% надежный DTO: имена свойств в точности копируют JSON от React
 public class CreateContestDto
 {
-    [JsonPropertyName("kind")]
-    public string? Kind { get; set; }
+    public string? kind { get; set; }
+    public string? title { get; set; }
+    public string? subtitle { get; set; }
+    public string? language { get; set; }
+    public string? location { get; set; }
+    public int starsJoin { get; set; }
+    public int starsWin { get; set; }
+    public bool isActive { get; set; }
 
-    [JsonPropertyName("title")]
-    public string? Title { get; set; }
-
-    [JsonPropertyName("subtitle")]
-    public string? Subtitle { get; set; }
-
-    [JsonPropertyName("language")]
-    public string? Language { get; set; }
-
-    [JsonPropertyName("location")]
-    public string? Location { get; set; }
-
-    [JsonPropertyName("starsJoin")]
-    public int StarsJoin { get; set; }
-
-    [JsonPropertyName("starsWin")]
-    public int StarsWin { get; set; }
-
-    [JsonPropertyName("isActive")]
-    public bool IsActive { get; set; }
-
-    [JsonPropertyName("questions")]
-    public List<object>? Questions { get; set; }
+    // Поле questions специально убрали, чтобы парсер об него не спотыкался
 }
