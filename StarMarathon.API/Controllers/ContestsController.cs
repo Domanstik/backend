@@ -71,4 +71,58 @@ public class ContestsController : ControllerBase
 
         return Ok(new { success = true, url = fileUrl });
     }
+
+    // Создание нового конкурса (ТОЛЬКО ДЛЯ АДМИНОВ)
+    [Authorize(Roles = "admin")]
+    [HttpPost]
+    public async Task<IActionResult> CreateContest([FromBody] CreateContestDto req)
+    {
+        try
+        {
+            // 1. Создаем сущность конкурса
+            var contest = new Contest
+            {
+                Id = Guid.NewGuid(),
+                Kind = req.Kind ?? "contest",
+                Title = req.Title,
+                Subtitle = req.Subtitle,
+                Language = req.Language?.ToLower() ?? "ru",
+                Location = req.Location ?? "All",
+                StarsJoin = req.StarsJoin,
+                StarsWin = req.StarsWin,
+                IsActive = req.IsActive,
+                CreatedAt = DateTime.UtcNow,
+                // Если у тебя в модели EndDate, можно распарсить из Subtitle или оставить null
+                EndDate = DateTime.UtcNow.AddDays(7)
+            };
+
+            // 2. Если есть вопросы, добавляем их (если твоя модель это поддерживает)
+            if (req.Questions != null && req.Questions.Any())
+            {
+                // Тут логика добавления вопросов, если нужно
+            }
+
+            _db.Contests.Add(contest);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { success = true, id = contest.Id });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
 }
+
+// Вспомогательный класс (DTO) для приема данных с фронта
+public record CreateContestDto(
+    string Kind,
+    string Title,
+    string Subtitle,
+    string Language,
+    string Location,
+    int StarsJoin,
+    int StarsWin,
+    bool IsActive,
+    List<object> Questions // Пока object, если структура вопросов сложная
+);
