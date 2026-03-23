@@ -5,6 +5,7 @@ using StarMarathon.Domain.Entities;
 using StarMarathon.Infrastructure.Persistence;
 using StarMarathon.Application.Interfaces;
 using System.Security.Claims;
+using System.Text.Json.Serialization; // <-- ДОБАВИЛИ ДЛЯ ТОЧНОГО МАППИНГА JSON
 
 namespace StarMarathon.API.Controllers;
 
@@ -79,12 +80,11 @@ public class ContestsController : ControllerBase
     {
         try
         {
-            // 1. Создаем сущность конкурса
             var contest = new Contest
             {
                 Id = Guid.NewGuid(),
                 Kind = req.Kind ?? "contest",
-                Title = req.Title ?? "Без названия", // Защита от пустых имен
+                Title = req.Title ?? "Без названия",
                 Subtitle = req.Subtitle ?? "",
                 Language = req.Language?.ToLower() ?? "ru",
                 Location = req.Location ?? "All",
@@ -105,17 +105,56 @@ public class ContestsController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    // --- НОВЫЙ МЕТОД: УДАЛЕНИЕ КОНКУРСА ---
+    [Authorize(Roles = "admin")]
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteContest(Guid id)
+    {
+        try
+        {
+            var contest = await _db.Contests.FindAsync(id);
+            if (contest == null) return NotFound(new { error = "Конкурс не найден" });
+
+            _db.Contests.Remove(contest);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
 }
 
-// Надежный класс (DTO) для приема данных с фронта
+// --- БРОНЕБОЙНЫЙ DTO ---
 public class CreateContestDto
 {
+    [JsonPropertyName("kind")]
     public string? Kind { get; set; }
+
+    [JsonPropertyName("title")]
     public string? Title { get; set; }
+
+    [JsonPropertyName("subtitle")]
     public string? Subtitle { get; set; }
+
+    [JsonPropertyName("language")]
     public string? Language { get; set; }
+
+    [JsonPropertyName("location")]
     public string? Location { get; set; }
+
+    [JsonPropertyName("starsJoin")]
     public int StarsJoin { get; set; }
+
+    [JsonPropertyName("starsWin")]
     public int StarsWin { get; set; }
+
+    [JsonPropertyName("isActive")]
     public bool IsActive { get; set; }
+
+    [JsonPropertyName("questions")]
+    public List<object>? Questions { get; set; }
 }
