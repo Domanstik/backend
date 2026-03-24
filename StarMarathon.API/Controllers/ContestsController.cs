@@ -50,28 +50,46 @@ public class ContestsController : ControllerBase
         return Ok(contests);
     }
 
-    // --- ЗАГРУЗКА РАБОТЫ ПОЛЬЗОВАТЕЛЕМ ---
+    // --- ЗАГРУЗКА РАБОТЫ ПОЛЬЗОВАТЕЛЕМ (БРОНЕБОЙНАЯ ВЕРСИЯ) ---
     [HttpPost("{contestId}/upload")]
-    public async Task<IActionResult> UploadEntry(Guid contestId, IFormFile file)
+    public async Task<IActionResult> UploadEntry(Guid contestId, [FromForm] IFormFile file) // <-- ИСПРАВЛЕНИЕ: [FromForm]
     {
-        var userId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var contest = await _db.Contests.FindAsync(contestId);
-        if (contest == null) return NotFound();
-
-        var fileUrl = await _fileStorage.UploadFileAsync(file, "contest-entries");
-
-        var participant = new ContestParticipant
+        try
         {
-            ContestId = contestId,
-            UserId = userId,
-            FileUrls = fileUrl,
-            JoinedAt = DateTime.UtcNow
-        };
+            if (file == null || file.Length == 0)
+                return BadRequest(new { error = "Файл не получен сервером. Попробуйте выбрать другое фото." });
 
-        _db.ContestParticipants.Add(participant);
-        await _db.SaveChangesAsync();
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null)
+                return Unauthorized(new { error = "Пользователь не авторизован" });
 
-        return Ok(new { success = true, url = fileUrl });
+            var userId = long.Parse(userIdClaim.Value);
+            var contest = await _db.Contests.FindAsync(contestId);
+
+            if (contest == null)
+                return NotFound(new { error = "Конкурс не найден" });
+
+            // Сохраняем файл
+            var fileUrl = await _fileStorage.UploadFileAsync(file, "contest-entries");
+
+            var participant = new ContestParticipant
+            {
+                ContestId = contestId,
+                UserId = userId,
+                FileUrls = fileUrl,
+                JoinedAt = DateTime.UtcNow
+            };
+
+            _db.ContestParticipants.Add(participant);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { success = true, url = fileUrl });
+        }
+        catch (Exception ex)
+        {
+            // Если сервис сохранения падает (например, нет прав на папку) — вернется конкретная ошибка
+            return StatusCode(500, new { error = "Внутренняя ошибка сервера: " + ex.Message });
+        }
     }
 
     // ==========================================================
