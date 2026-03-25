@@ -15,8 +15,12 @@ public class SupabaseStorageService : IFileStorageService
 
     public async Task<string> UploadFileAsync(IFormFile file, string bucketName = "images")
     {
-        // Генерируем имя: timestamp_filename.jpg
-        var fileName = $"{DateTime.UtcNow.Ticks}_{file.FileName}";
+        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        // Достаем расширение (например, ".png")
+        var extension = Path.GetExtension(file.FileName);
+
+        // Генерируем 100% безопасное имя: e5f6-7890.png
+        var fileName = $"{Guid.NewGuid()}{extension}";
 
         // Преобразуем файл в байты
         using var memoryStream = new MemoryStream();
