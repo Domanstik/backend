@@ -39,20 +39,47 @@ public class ContestsController : ControllerBase
         if (user == null) return Unauthorized();
         string lang = user.LanguageCode ?? "ru";
 
+        // 1. Достаем список конкурсов (вместе с вопросами)
         var contests = await _db.Contests
             .Where(c => c.Language == lang || c.Language == "all")
             .Where(c => c.IsActive)
             .Include(c => c.Questions)
-            .ThenInclude(q => q.Options)
+                .ThenInclude(q => q.Options)
             .OrderByDescending(c => c.EndDate)
             .ToListAsync();
 
-        return Ok(contests);
+        // 2. Собираем ID найденных конкурсов
+        var contestIds = contests.Select(c => c.Id).ToList();
+
+        // 3. Достаем из базы участия ТЕКУЩЕГО юзера в ЭТИХ конкурсах
+        var userParticipations = await _db.ContestParticipants
+            .Where(p => p.UserId == userId && contestIds.Contains(p.ContestId))
+            .ToListAsync();
+
+        // 4. "Склеиваем" данные, формируя ответ для фронтенда
+        var result = contests.Select(c => new
+        {
+            c.Id,
+            c.Kind,
+            c.Title,
+            c.Subtitle,
+            c.Language,
+            c.Location,
+            c.StarsJoin,
+            c.StarsWin,
+            c.EndDate,
+            c.IsActive,
+            c.Questions,
+            // Фронтенд увидит это как поле 'contestParticipants' (массив участий)
+            ContestParticipants = userParticipations.Where(p => p.ContestId == c.Id).ToList()
+        });
+
+        return Ok(result);
     }
 
     // --- ЗАГРУЗКА РАБОТЫ ПОЛЬЗОВАТЕЛЕМ (БРОНЕБОЙНАЯ ВЕРСИЯ) ---
     [HttpPost("{contestId}/upload")]
-    public async Task<IActionResult> UploadEntry(Guid contestId, [FromForm] IFormFile file) // <-- ИСПРАВЛЕНИЕ: [FromForm]
+    public async Task<IActionResult> UploadEntry(Guid contestId, [FromForm] IFormFile file)
     {
         try
         {
@@ -87,7 +114,6 @@ public class ContestsController : ControllerBase
         }
         catch (Exception ex)
         {
-            // Если сервис сохранения падает (например, нет прав на папку) — вернется конкретная ошибка
             return StatusCode(500, new { error = "Внутренняя ошибка сервера: " + ex.Message });
         }
     }
@@ -95,6 +121,26 @@ public class ContestsController : ControllerBase
     // ==========================================================
     //                    АДМИНСКАЯ ЧАСТЬ
     // ==========================================================
+
+    // --- ПОЛУЧЕНИЕ УЧАСТНИКОВ КОНКУРСА ДЛЯ АДМИНКИ ---
+    [Authorize(Roles = "admin")]
+    [HttpGet("admin/{contestId}/participants")]
+    public async Task<IActionResult> GetContestParticipants(Guid contestId)
+    {
+        try
+        {
+            var participants = await _db.ContestParticipants
+                .Where(p => p.ContestId == contestId)
+                .OrderByDescending(p => p.JoinedAt)
+                .ToListAsync();
+
+            return Ok(participants);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
 
     // --- ПОЛУЧЕНИЕ ВСЕХ КОНКУРСОВ ДЛЯ АДМИНКИ (без фильтров) ---
     [Authorize(Roles = "admin")]
@@ -113,6 +159,7 @@ public class ContestsController : ControllerBase
         }
         catch (Exception ex)
         {
+            // Исправлена опечатка со знаком =
             return BadRequest(new { error = ex.Message });
         }
     }
