@@ -38,7 +38,7 @@ builder.Services.AddSingleton(supabaseClient);
 builder.Services.AddScoped<IFileStorageService, SupabaseStorageService>();
 builder.Services.AddHttpClient("StormAPI", client =>
 {
-    client.BaseAddress = new Uri(Environment.GetEnvironmentVariable("STORM_API_URL") ?? "https://mice-various-appropriations-seekers.trycloudflare.com");
+    client.BaseAddress = new Uri(Environment.GetEnvironmentVariable("STORM_API_URL") ?? "https://stars1.stormbv.com/api/");
 });
 builder.Services.AddScoped<IAuthService, StormBvService>();
 
@@ -76,6 +76,78 @@ builder.Services.AddCors(options =>
 builder.Services.AddHostedService<TelegramBotService>();
 
 var app = builder.Build();
+
+// =========================================================================
+// === TEMPORARY STORM API TEST BLOCK (DELETE AFTER VERIFICATION) ===
+// =========================================================================
+try
+{
+    Console.WriteLine(">>> [STORM TEST] STARTING TEST REQUESTS <<<");
+    using var testClient = new HttpClient();
+
+    // 1. Test authLogin
+    var authLoginRequest = new { auth_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJRVmlWMHZjWWg4dExJRTc4djlHdVZBIiwiaWF0IjoxNzc1NDkwMzQ4LCJzdWIiOiJhdXRoIiwiZGlkIjoiMSIsInRpZCI6IjY0NTM3MDQzMyJ9.x1v3TDWy4BlK2mjB4GeEbv3gP2GD1feRVRKD-rxpDH0" };
+    var loginJson = System.Text.Json.JsonSerializer.Serialize(authLoginRequest);
+    var loginContent = new StringContent(loginJson, System.Text.Encoding.UTF8, "application/json");
+
+    Console.WriteLine(">>> [STORM TEST] Sending POST to authLogin...");
+    var loginResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/authLogin", loginContent);
+    var loginResponseText = await loginResponse.Content.ReadAsStringAsync();
+
+    Console.WriteLine($">>> [STORM TEST] authLogin Response: {loginResponse.StatusCode}");
+    Console.WriteLine($">>> [STORM TEST] authLogin Body: {loginResponseText}");
+
+    // Proceed if login is successful and we got a session token
+    if (loginResponse.IsSuccessStatusCode && loginResponseText.Contains("session_jwt"))
+    {
+        using var jsonDoc = System.Text.Json.JsonDocument.Parse(loginResponseText);
+        var sessionJwt = jsonDoc.RootElement.GetProperty("session_jwt").GetString();
+
+        // Prepare the payload (session_jwt) used for all subsequent requests
+        var commonRequest = new { session_jwt = sessionJwt };
+        var commonJson = System.Text.Json.JsonSerializer.Serialize(commonRequest);
+
+        // 2. Test getProfile
+        Console.WriteLine(">>> [STORM TEST] Sending POST to getProfile...");
+        var profileContent = new StringContent(commonJson, System.Text.Encoding.UTF8, "application/json");
+        var profileResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/getProfile", profileContent);
+        var profileResponseText = await profileResponse.Content.ReadAsStringAsync();
+
+        Console.WriteLine($">>> [STORM TEST] getProfile Response: {profileResponse.StatusCode}");
+        Console.WriteLine($">>> [STORM TEST] getProfile Body: {profileResponseText}");
+
+        // 3. Test getRating (Leaderboard)
+        Console.WriteLine(">>> [STORM TEST] Sending POST to getRating...");
+        var ratingContent = new StringContent(commonJson, System.Text.Encoding.UTF8, "application/json");
+        var ratingResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/getRating", ratingContent);
+        var ratingResponseText = await ratingResponse.Content.ReadAsStringAsync();
+
+        Console.WriteLine($">>> [STORM TEST] getRating Response: {ratingResponse.StatusCode}");
+        Console.WriteLine($">>> [STORM TEST] getRating Body: {ratingResponseText}");
+
+        // 4. Test getTransactions (History)
+        Console.WriteLine(">>> [STORM TEST] Sending POST to getTransactions...");
+        var txContent = new StringContent(commonJson, System.Text.Encoding.UTF8, "application/json");
+        var txResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/getTransactions", txContent);
+        var txResponseText = await txResponse.Content.ReadAsStringAsync();
+
+        Console.WriteLine($">>> [STORM TEST] getTransactions Response: {txResponse.StatusCode}");
+        Console.WriteLine($">>> [STORM TEST] getTransactions Body: {txResponseText}");
+    }
+    else
+    {
+        Console.WriteLine(">>> [STORM TEST] Skipping next steps because authLogin failed or missing session_jwt.");
+    }
+
+    Console.WriteLine(">>> [STORM TEST] END OF TEST <<<");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($">>> [STORM TEST] ERROR: {ex.Message}");
+}
+// =========================================================================
+// === END OF TEST BLOCK ===
+// =========================================================================
 
 // --- ВАЖНО: Swagger работает ВСЕГДА (даже на Render) ---
 app.UseSwagger();
