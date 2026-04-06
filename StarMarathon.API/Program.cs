@@ -77,6 +77,53 @@ builder.Services.AddHostedService<TelegramBotService>();
 
 var app = builder.Build();
 
+// =========================================================================
+// === ВРЕМЕННЫЙ ТЕСТОВЫЙ БЛОК STORM API (УДАЛИТЬ ПОСЛЕ ПРОВЕРКИ) ===
+// =========================================================================
+try
+{
+    Console.WriteLine(">>> [STORM TEST] НАЧАЛО ТЕСТОВОГО ЗАПРОСА <<<");
+    using var testClient = new HttpClient();
+
+    // 1. Тестируем authLogin
+    var authLoginRequest = new { auth_jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJFRWltMDJ4dmlFWWo4RFBSVjBibnZRIiwiaWF0IjoxNzc1NDU0ODI5LCJzdWIiOiJhdXRoIiwiZGlkIjoiMSIsInRpZCI6IklEXzEwMzYifQ.EHAX6xF9z6lzYOCqSXybkqno-67v6S0dUH5yf3xixFk" };
+    var loginJson = System.Text.Json.JsonSerializer.Serialize(authLoginRequest);
+    var loginContent = new StringContent(loginJson, System.Text.Encoding.UTF8, "application/json");
+
+    Console.WriteLine(">>> [STORM TEST] Отправляем POST на authLogin...");
+    var loginResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/authLogin", loginContent);
+    var loginResponseText = await loginResponse.Content.ReadAsStringAsync();
+
+    Console.WriteLine($">>> [STORM TEST] Ответ authLogin: {loginResponse.StatusCode}");
+    Console.WriteLine($">>> [STORM TEST] Тело: {loginResponseText}");
+
+    // 2. Тестируем getProfile (если логин прошел)
+    if (loginResponse.IsSuccessStatusCode && loginResponseText.Contains("session_jwt"))
+    {
+        using var jsonDoc = System.Text.Json.JsonDocument.Parse(loginResponseText);
+        var sessionJwt = jsonDoc.RootElement.GetProperty("session_jwt").GetString();
+
+        var profileRequest = new { session_jwt = sessionJwt };
+        var profileJson = System.Text.Json.JsonSerializer.Serialize(profileRequest);
+        var profileContent = new StringContent(profileJson, System.Text.Encoding.UTF8, "application/json");
+
+        Console.WriteLine(">>> [STORM TEST] Отправляем POST на getProfile...");
+        var profileResponse = await testClient.PostAsync("https://stars1.stormbv.com/api/getProfile", profileContent);
+        var profileResponseText = await profileResponse.Content.ReadAsStringAsync();
+
+        Console.WriteLine($">>> [STORM TEST] Ответ getProfile: {profileResponse.StatusCode}");
+        Console.WriteLine($">>> [STORM TEST] Тело: {profileResponseText}");
+    }
+    Console.WriteLine(">>> [STORM TEST] КОНЕЦ ТЕСТА <<<");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($">>> [STORM TEST] ОШИБКА: {ex.Message}");
+}
+// =========================================================================
+// === КОНЕЦ ТЕСТОВОГО БЛОКА ===
+// =========================================================================
+
 // --- ВАЖНО: Swagger работает ВСЕГДА (даже на Render) ---
 app.UseSwagger();
 app.UseSwaggerUI();
